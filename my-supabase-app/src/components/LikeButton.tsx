@@ -1,24 +1,25 @@
+// Ilya Zeldner
 "use client";
 
-import { useState, useTransition } from "react";
-import { incrementLikes } from "@/app/actions";
+import { incrementLikes } from "@/app/actions"; // The Action that updates the Database
 
-export default function LikeButton({ initialLikes }: { initialLikes: number }) {
-  const [likes, setLikes] = useState(initialLikes);
-  const [isPending, startTransition] = useTransition();
-
-  const handleLike = () => {
-    setLikes((prev) => prev + 1); // 🔥 optimistic update
-    startTransition(() => incrementLikes());
-  };
-
+// pass the student's ID and current likes as "props"
+export default function LikeButton({
+  id,
+  initialLikes,
+}: {
+  id: string;
+  initialLikes: number;
+}) {
   return (
     <button
-      onClick={handleLike}
-      disabled={isPending}
-      className="bg-pink-100 hover:bg-pink-200 text-black p-2 rounded"
+      onClick={async () => {
+        // This is where the PURE FRONT (Click) talks to the BACK (Action)
+        await incrementLikes(id);
+      }}
+      className="bg-red-50 hover:bg-red-100 text-red-500 px-3 py-1 rounded-full text-sm border border-red-200 transition"
     >
-      ❤️ {likes} Likes
+      ❤️ {initialLikes} {initialLikes === 1 ? "like" : "likes"}
     </button>
   );
 }

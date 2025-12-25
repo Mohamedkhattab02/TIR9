@@ -1,111 +1,204 @@
 // Ilya Zeldner
+import { headers } from "next/headers";
 import { supabase } from "@/lib/supabase";
 import { addEmail, deleteEmail } from "./actions";
 import LikeButton from "@/components/LikeButton";
-import { getLikes } from "./actions";
 
-export const dynamic = "force-dynamic";
-export const fetchCache = "force-no-store";
-
-const TABLE_NAME = "Waitlist2026"; // Supabase Table Name
+const IP_Table = "traffic"; // ip table name
+const TABLE_NAME = "Waitlist2026"; // waitlist table name
 
 interface WaitlistEntry {
-  id: string;
+  id: string; // assuming id is a string
   email: string;
+  likes: number;
   created_at: string;
 }
 
-
-
 export default async function Page() {
-  // Fetch Data and Count
-  const likes = await getLikes();
-  const { data: entries, count } = await supabase
+  // CAPTURE IP ADDRESS
+  const headerList = await headers();
+  const ip =
+    headerList.get("x-forwarded-for")?.split(",")[0] || // standard header for client IP
+    headerList.get("x-real-ip") || // try another common header
+    "127.0.0.1"; // Fallback to localhost if no IP found
+
+  // TRAFFIC LOGIC
+  try {
+    const { data: existing } = await supabase
+      .from(IP_Table) // table name
+      .select("*") // select all columns
+      .eq("ip_address", ip) // filter by captured IP
+      .single(); // expect a single record
+
+    if (existing) {
+      await supabase
+        .from(IP_Table)
+        .update({
+          // update existing record
+          visit_count: (existing.visit_count || 1) + 1, // increment visit count
+          last_visit: new Date().toISOString(),
+        })
+        .eq("ip_address", ip); // filter by IP
+    } else {
+      await supabase.from(IP_Table).insert([
+        {
+          ip_address: ip,
+          visit_count: 1,
+          last_visit: new Date().toISOString(),
+        },
+      ]);
+    }
+  } catch (e) {
+    console.error("Traffic update skipped or failed:", e);
+  }
+
+  // DATA FETCHING
+  const { data: waitlist } = await supabase
     .from(TABLE_NAME)
-    .select("*", { count: "exact" }) // Get exact count
+    .select("*")
     .order("created_at", { ascending: false });
 
-  const waitlist = entries as WaitlistEntry[] | null;
-
-  // The * (Star) : This represents "All Columns."
-  // When we write .select('*'), we are telling Supabase: "I want every piece of information for each row." This includes the id, the email, and the created_at timestamp.
-  // It is the standard way to fetch the full record of each student in your waitlist.
-  // The count: 'exact'
-  // This is a special instruction for the Database Engine. Usually, a database just returns the rows of data. However, by adding { count: 'exact' }, you are asking Supabase to perform two jobs at once:
-  // 1.Fetch the rows (the list of emails).
-  // 2. Calculate the total (the exact number of rows in the table).
-  // This returns a separate variable called count. It is much faster to let the database count the rows in Frankfurt than to download thousands of emails and count them in your code using .length.
+  const { data: trafficLogs } = await supabase
+    .from(IP_Table)
+    .select("*") // select all columns
+    .order("visit_count", { ascending: false }); // order by visit count
 
   return (
-    <main className="max-w-xl mx-auto p-10 font-sans text-slate-900">
-      {/* HEADER SECTION */}
-      <div className="flex justify-between items-center mb-10 border-b pb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-blue-600">Waitlist 2026</h1>
-          {/* Using 'count' here removes the "unused" warning */}
-          <p className="text-sm text-slate-500 font-medium">
-            Total Students: <span className="text-blue-600">{count ?? 0}</span>
-          </p>
-        </div>
-
-        {/* PURE FRONT-END COMPONENT */}
-        <div className="flex flex-col items-center gap-1">
-          <span className="text-[10px] uppercase tracking-widest text-slate-400">
-            Interactive
-          </span>
-          <LikeButton initialLikes={likes} />
-
-        </div>
+    <main className="max-w-6xl mx-auto p-10 font-sans text-black bg-white min-h-screen">
+      {/* HEADER */}
+      <div className="border-b border-gray-100 pb-8 mb-10">
+        <h1 className="text-4xl font-black text-blue-700 uppercase tracking-tight">
+          Classroom Admin <span className="text-gray-300">/</span> 2026
+        </h1>
+        <p className="text-gray-400 text-sm mt-2">
+          Hybrid Server/Client Application
+        </p>
       </div>
 
-      {/* INPUT FORM (Connects to actions.ts) */}
-      <section className="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-10 shadow-sm">
-        <h2 className="text-lg font-semibold mb-4 text-slate-800">
-          Add to Database
-        </h2>
-        <form action={addEmail} className="flex flex-col gap-3">
-          <input
-            name="email"
-            type="email"
-            placeholder="student@example.com"
-            required
-            className="p-3 rounded-lg border border-slate-300 text-black outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          />
-          <button
-            type="submit"
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-all active:scale-95"
-          >
-            Join Waitlist
-          </button>
-        </form>
-      </section>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10 items-start">
+        {/* LEFT: STUDENT MANAGEMENT (Waitlist) */}
+        <div className="lg:col-span-2">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 underline decoration-blue-500 decoration-4 underline-offset-8">
+            Student Waitlist
+          </h2>
 
-      {/* THE LIST (Fetched from Server) */}
-      <section>
-        <h3 className="text-xl font-bold mb-4 text-slate-800">
-          Verified Entries
-        </h3>
-        <ul className="divide-y divide-slate-100 bg-white rounded-lg border border-slate-100 shadow-sm">
-          {/* If waitlist exists, we map through it */}
-          {waitlist && waitlist.length > 0 ? (
-            waitlist.map((user) => (
-              <li
+          {/* Add Student Form */}
+          <form
+            action={addEmail}
+            className="flex gap-2 mb-10 bg-slate-50 p-5 rounded-2xl border border-slate-200 shadow-sm"
+          >
+            <input
+              name="email"
+              type="email"
+              placeholder="Enter student email..."
+              required
+              className="flex-1 p-3 rounded-xl border border-slate-300 outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+            />
+            <button
+              type="submit"
+              className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 transition shadow-lg active:scale-95"
+            >
+              Add
+            </button>
+          </form>
+
+          {/* Student List */}
+          <div className="grid gap-4">
+            {waitlist?.map((user: any) => (
+              <div
                 key={user.id}
-                className="p-4 flex justify-between items-center hover:bg-slate-50 transition-colors"
+                className="p-5 border border-slate-100 rounded-2xl flex justify-between items-center bg-white shadow-sm hover:shadow-md transition duration-300 group"
               >
-                <span className="font-medium text-slate-700">{user.email}</span>
-                <span className="text-xs text-slate-400 tabular-nums">
-                  {new Date(user.created_at).toLocaleDateString()}
-                </span>
-              </li>
-            ))
-          ) : (
-            <li className="p-10 text-center text-slate-400 italic">
-              No students joined yet.
-            </li>
-          )}
-        </ul>
-      </section>
+                <div>
+                  <p className="font-bold text-lg text-slate-800 mb-2">
+                    {user.email}
+                  </p>
+                  <div className="flex items-center gap-3">
+                    {/* Unique Like Button for each student */}
+                    <LikeButton id={user.id} initialLikes={user.likes || 0} />
+                    <span className="text-[10px] text-gray-400 font-mono">
+                      Joined:{" "}
+                      {new Date(user.created_at).toLocaleDateString("he-IL", {
+                        timeZone: "Asia/Jerusalem",
+                      })}
+                    </span>
+                  </div>
+                </div>
+                <form action={deleteEmail}>
+                  <input type="hidden" name="studentId" value={user.id} />
+                  <button
+                    type="submit"
+                    className="text-gray-300 hover:text-red-500 p-2 transition-colors"
+                  >
+                    <span className="text-xs font-bold uppercase tracking-widest">
+                      Delete
+                    </span>
+                  </button>
+                </form>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* RIGHT: TRAFFIC ANALYTICS  */}
+        <div className="lg:col-span-1">
+          <div className="bg-slate-900 text-white rounded-[2rem] shadow-2xl border border-slate-800 sticky top-10 overflow-hidden flex flex-col h-[650px]">
+            {/* Header of the Traffic Box */}
+            <div className="p-6 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md">
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-bold text-blue-400">
+                  Live Traffic Feed
+                </h2>
+                <span className="animate-pulse w-2 h-2 bg-green-500 rounded-full"></span>
+              </div>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest mt-1">
+                Scroll to view history
+              </p>
+            </div>
+
+            {/* SCROLLABLE LIST AREA */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {trafficLogs?.map((log: any) => (
+                <div
+                  key={log.id}
+                  className="flex justify-between items-center bg-slate-800/40 p-4 rounded-2xl border border-slate-700/50 hover:bg-slate-800 transition duration-200"
+                >
+                  <div className="overflow-hidden">
+                    <p className="font-mono text-xs text-blue-300 truncate mb-1">
+                      {log.ip_address === "::1" ||
+                      log.ip_address === "127.0.0.1"
+                        ? "🏠 Ilya Zeldner"
+                        : log.ip_address}
+                    </p>
+                  </div>
+
+                  {/* VISITS COUNTER */}
+                  <div className="flex flex-col items-center bg-blue-600/10 border border-blue-500/20 rounded-xl px-3 py-1 min-w-[60px]">
+                    <span className="text-[8px] text-blue-400 font-black uppercase">
+                      Visits
+                    </span>
+                    <span className="text-xl font-bold text-blue-100 leading-tight">
+                      {log.visit_count}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Fixed Footer with Your IP */}
+            <div className="p-6 bg-slate-800/50 border-t border-slate-700">
+              <p className="text-[9px] text-slate-500 uppercase font-black mb-2 text-center">
+                Your Current Network ID
+              </p>
+              <div className="flex justify-center">
+                <code className="text-[11px] font-mono text-blue-400 bg-slate-900 px-4 py-2 rounded-full border border-slate-700 shadow-inner">
+                  {ip}
+                </code>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }
